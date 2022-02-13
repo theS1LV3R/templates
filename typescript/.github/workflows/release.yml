@@ -1,0 +1,57 @@
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+
+name: Create Draft Release
+
+jobs:
+  build:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - run: git checkout HEAD^
+
+      - name: Install yarn if not already installed
+        run: if command -v yarn &> /dev/null; then echo "yarn is already installed, not doing anything"; else npm i -g yarn; fi
+
+      - id: yarn-cache-dir # Stolen from https://github.com/actions/cache/blob/main/examples.md#node---yarn
+        run: echo "::set-output name=dir::$(yarn cache dir)"
+
+      - name: Restore yarn cache dir (speeding up builds)
+        id: yarn-cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.yarn-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+
+      - name: Install deps
+        if: steps.yarn-cache.outputs.cache-hit != 'true'
+        run: yarn --non-interactive install --frozen-lockfile
+
+      - name: Generate changelog
+        run: |
+          echo "" > changelog_tmp
+          ./node_modules/.bin/standard-version  \
+            -i changelog_tmp                    \
+            --header ""                         \
+            --skip.commit                       \
+            --skip.tag
+
+      - run: cat changelog_tmp
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
+          tag: ${{ github.ref }}
+          name: Release ${{ github.ref }}
+          bodyFile: changelog_tmp
+          draft: true
+          prerelease: false
